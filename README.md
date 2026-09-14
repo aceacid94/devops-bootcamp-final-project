@@ -11,7 +11,7 @@
   📊 URL Monitoring (Grafana) | https://monitoring-infratify-grafana-abdulhakim.abdulhakim-devops.com/d/ad95g45/armada-node-overview?from=now-5m&to=now&timezone=browser&refresh=30s
 | 📦 URL Repo | [https://github.com/aceacid94/devops-bootcamp-final-project](https://github.com/aceacid94/devops-bootcamp-final-project) |
 
-
+GRAFANA CREDENTIAL: USERNAME: admin | Password: admin
 ---
 
 ## 🗂️ Struktur Repo
