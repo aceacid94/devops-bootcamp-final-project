@@ -1,0 +1,10 @@
+[web]
+web_server ansible_host=${web_ip}
+
+[monitoring]
+monitoring_server ansible_host=${monitoring_ip}
+
+[all:vars]
+ansible_user=ubuntu
+ansible_ssh_private_key_file=/home/ubuntu/.ssh/id_ed25519
+ansible_ssh_common_args='-o StrictHostKeyChecking=no'

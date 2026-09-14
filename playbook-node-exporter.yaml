@@ -1,0 +1,16 @@
+- name: Pasang node_exporter (Docker) di web server
+  hosts: web
+  become: true
+
+  tasks:
+    - name: Jalankan container node_exporter
+      community.docker.docker_container:
+        name: node_exporter
+        image: prom/node-exporter:latest
+        state: started
+        restart_policy: unless-stopped
+        network_mode: host
+        pid_mode: host
+        volumes:
+          - /:/host:ro,rslave
+        command: --path.rootfs=/host

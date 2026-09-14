@@ -1,0 +1,96 @@
+name: Terraform + Ansible Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+env:
+  AWS_REGION: ap-southeast-1
+
+jobs:
+  terraform:
+    name: Terraform Apply
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+  configure-and-deploy:
+    name: Bootstrap Controller + Run Ansible
+    needs: terraform
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install jq
+        run: sudo apt-get update -y && sudo apt-get install -y jq
+
+      - name: Make scripts executable
+        run: chmod +x scripts/ssm-run.sh
+
+      - name: Look up instance IDs by Name tag
+        run: |
+          CONTROLLER_ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=ansible_controller" "Name=instance-state-name,Values=running" \
+            --query "Reservations[0].Instances[0].InstanceId" --output text)
+          WEB_ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=web-server" "Name=instance-state-name,Values=running" \
+            --query "Reservations[0].Instances[0].InstanceId" --output text)
+          MON_ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=monitoring_server" "Name=instance-state-name,Values=running" \
+            --query "Reservations[0].Instances[0].InstanceId" --output text)
+          echo "CONTROLLER_ID=$CONTROLLER_ID" >> "$GITHUB_ENV"
+          echo "WEB_ID=$WEB_ID" >> "$GITHUB_ENV"
+          echo "MON_ID=$MON_ID" >> "$GITHUB_ENV"
+
+      - name: Wait for SSM agents to be online
+        run: |
+          for id in "$CONTROLLER_ID" "$WEB_ID" "$MON_ID"; do
+            for i in $(seq 1 20); do
+              STATUS=$(aws ssm describe-instance-information \
+                --filters "Key=InstanceIds,Values=$id" \
+                --query "InstanceInformationList[0].PingStatus" --output text)
+              [ "$STATUS" == "Online" ] && break
+              echo "Waiting for SSM agent on $id (attempt $i)..."
+              sleep 10
+            done
+          done
+
+      - name: Bootstrap controller (install ansible + ssh key)
+        run: |
+          PUBKEY=$(./scripts/ssm-run.sh "$CONTROLLER_ID" "$(cat scripts/bootstrap-controller.sh)")
+          echo "PUBKEY=$PUBKEY" >> "$GITHUB_ENV"
+
+      - name: Authorize controller's key on web + monitoring servers
+        run: |
+          ./scripts/ssm-run.sh "$WEB_ID" "grep -qxF '$PUBKEY' /home/ubuntu/.ssh/authorized_keys 2>/dev/null || echo '$PUBKEY' >> /home/ubuntu/.ssh/authorized_keys"
+          ./scripts/ssm-run.sh "$MON_ID" "grep -qxF '$PUBKEY' /home/ubuntu/.ssh/authorized_keys 2>/dev/null || echo '$PUBKEY' >> /home/ubuntu/.ssh/authorized_keys"
+
+      - name: Push inventory and playbook to the controller
+        run: |
+          INVENTORY_B64=$(base64 -w0 ansible/inventory.ini)
+          PLAYBOOK_B64=$(base64 -w0 ansible/install-docker.yaml)
+          ./scripts/ssm-run.sh "$CONTROLLER_ID" "echo $INVENTORY_B64 | base64 -d > /home/ubuntu/inventory.ini && chown ubuntu:ubuntu /home/ubuntu/inventory.ini"
+          ./scripts/ssm-run.sh "$CONTROLLER_ID" "echo $PLAYBOOK_B64 | base64 -d > /home/ubuntu/install-docker.yaml && chown ubuntu:ubuntu /home/ubuntu/install-docker.yaml"
+
+      - name: Run the Ansible playbook from the controller
+        run: |
+          ./scripts/ssm-run.sh "$CONTROLLER_ID" "sudo -u ubuntu ansible-playbook -i /home/ubuntu/inventory.ini /home/ubuntu/install-docker.yaml"

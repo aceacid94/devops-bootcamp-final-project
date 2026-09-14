@@ -1,0 +1,32 @@
+- name: Pasang Prometheus dan Grafana (Docker Compose)
+  hosts: monitoring
+  become: true
+  vars:
+    monitoring_dir: /opt/monitoring
+
+  # Catatan: jalankan install_docker.yml lebih dulu (atau gabungkan sebagai play
+  # terpisah sebelum play ini) supaya Docker & Docker Compose sudah tersedia di host.
+
+  tasks:
+    - name: Buat direktori monitoring
+      ansible.builtin.file:
+        path: "{{ monitoring_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Salin konfigurasi prometheus.yaml
+      ansible.builtin.template:
+        src: prometheus.yaml.j2
+        dest: "{{ monitoring_dir }}/prometheus.yaml"
+        mode: '0644'
+
+    - name: Salin docker-compose.yml
+      ansible.builtin.copy:
+        src: docker-compose.yml
+        dest: "{{ monitoring_dir }}/docker-compose.yml"
+        mode: '0644'
+
+    - name: Jalankan Prometheus & Grafana via Docker Compose
+      community.docker.docker_compose_v2:
+        project_src: "{{ monitoring_dir }}"
+        state: present

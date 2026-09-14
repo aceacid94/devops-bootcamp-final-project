@@ -1,0 +1,42 @@
+- name: Sediakan web server
+  hosts: web
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Pasang nginx
+      apt:
+        name: nginx
+        state: present
+        update_cache: yes
+    - name: Hidupkan servis nginx
+      service:
+        name: nginx
+        state: started
+        enabled: yes
+    - name: Tulis index.html
+      copy:
+        content: >
+          Ini {{ inventory_hostname }}
+        dest: /var/www/html/index.html
+
+        
+- name: Sediakan monitoring server
+  hosts: monitoring
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Pasang nginx
+      apt:
+        name: nginx
+        state: present
+        update_cache: yes
+    - name: Hidupkan servis nginx
+      service:
+        name: nginx
+        state: started
+        enabled: yes
+    - name: Tulis index.html
+      copy:
+        content: >
+          Ini {{ inventory_hostname }}
+        dest: /var/www/html/index.html
